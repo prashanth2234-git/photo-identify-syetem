@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, UploadCloud, Camera, Eye, Search, Image as ImageIcon, Sparkles, Layers, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Plus, UploadCloud, Camera, Eye, Search, Image as ImageIcon, Sparkles, Layers, ArrowRight, CheckCircle2, FolderDown } from 'lucide-react';
 import { Event, PhotographerStats } from '../../types';
 import { api } from '../../services/api';
 
@@ -8,6 +8,7 @@ interface DashboardOverviewProps {
   stats: PhotographerStats | null;
   onCreateEventClick: () => void;
   onUploadPhotosClick: (event: Event) => void;
+  onImportDriveClick: (event: Event) => void;
   onOpenCloudinarySettings: () => void;
   onViewEventGallery: (event: Event) => void;
   onGoToFindPhotos: (eventId?: string) => void;
@@ -18,6 +19,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   stats,
   onCreateEventClick,
   onUploadPhotosClick,
+  onImportDriveClick,
   onOpenCloudinarySettings,
   onViewEventGallery,
   onGoToFindPhotos
@@ -208,13 +210,21 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
               {/* Action Buttons */}
               <div className="p-5 pt-0 border-t border-white/[0.05] space-y-2 mt-2">
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     onClick={() => onUploadPhotosClick(event)}
                     className="py-2.5 px-3 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 hover:text-white border border-purple-500/30 text-xs font-semibold flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
                   >
                     <UploadCloud className="w-3.5 h-3.5" />
                     <span>Upload Photos</span>
+                  </button>
+
+                  <button
+                    onClick={() => onImportDriveClick(event)}
+                    className="py-2.5 px-3 rounded-xl bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 hover:text-white border border-sky-500/30 text-xs font-semibold flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                  >
+                    <FolderDown className="w-3.5 h-3.5" />
+                    <span>Google Drive</span>
                   </button>
 
                   <button

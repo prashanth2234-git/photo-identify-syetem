@@ -74,3 +74,24 @@ class DemoPersona(BaseModel):
     role_description: str
     selfie_url: str
     bib_number: Optional[str] = None
+
+class DriveImportRequest(BaseModel):
+    folder_url: str
+
+class ImportJob(BaseModel):
+    id: str
+    event_id: str
+    folder_url: str
+    status: str
+    total: int = 0
+    processed: int = 0
+    successful: int = 0
+    skipped: int = 0
+    failed: int = 0
+    remaining: int = 0
+    percentage: float = 0.0
+    current_filename: Optional[str] = None
+    message: str = ""
+    errors: List[dict] = []
+    created_at: str = ""
+    finished_at: Optional[str] = None

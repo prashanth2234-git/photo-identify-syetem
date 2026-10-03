@@ -7,3 +7,7 @@ __pycache__/
 .pytest_cache/
 
 .venv/
+*service-account*.json
+*service_account*.json
+credentials*.json
+token*.json

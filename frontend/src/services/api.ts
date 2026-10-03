@@ -1,4 +1,4 @@
-import { Event, Photo, SearchResponse, DemoPersona, PhotographerStats, CreateEventPayload } from '../types';
+import { Event, Photo, SearchResponse, DemoPersona, PhotographerStats, CreateEventPayload, ImportJob } from '../types';
 
 const rawBase = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/+$/, '') : '';
 export const API_BASE = rawBase ? (rawBase.endsWith('/api') ? rawBase : `${rawBase}/api`) : '/api';
@@ -124,6 +124,31 @@ export const api = {
   }> {
     const res = await fetch(`${API_BASE}/cloudinary/status`);
     if (!res.ok) throw new Error('Failed to fetch Cloudinary status');
+    return res.json();
+  },
+
+  async startDriveImport(eventId: string, folderUrl: string): Promise<ImportJob> {
+    const res = await fetch(`${API_BASE}/events/${encodeURIComponent(eventId)}/imports/google-drive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder_url: folderUrl })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.detail || 'Failed to start Google Drive import');
+    }
+    return res.json();
+  },
+
+  async getImportJob(jobId: string): Promise<ImportJob> {
+    const res = await fetch(`${API_BASE}/imports/${encodeURIComponent(jobId)}`);
+    if (!res.ok) throw new Error('Failed to fetch import status');
+    return res.json();
+  },
+
+  async cancelImportJob(jobId: string): Promise<ImportJob> {
+    const res = await fetch(`${API_BASE}/imports/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to cancel import');
     return res.json();
   },
 

@@ -16,6 +16,8 @@ class InMemoryDB:
         self.face_embeddings: List[Tuple[str, np.ndarray, Optional[str]]] = []
         self.demo_personas: List[DemoPersona] = []
         self.search_sessions: List[Dict[str, Any]] = []
+        # Google Drive duplicate tracking: event_id -> set of imported Drive file IDs
+        self.drive_file_ids: Dict[str, set] = {}
 
     def get_all_events(self) -> List[Event]:
         return list(self.events.values())
@@ -161,6 +163,14 @@ class InMemoryDB:
         if event_id in self.events:
             self.events[event_id].total_photos = 0
         return count
+
+    def is_drive_file_imported(self, event_id: str, drive_file_id: str) -> bool:
+        return drive_file_id in self.drive_file_ids.get(event_id, set())
+
+    def mark_drive_file_imported(self, event_id: str, drive_file_id: str):
+        if event_id not in self.drive_file_ids:
+            self.drive_file_ids[event_id] = set()
+        self.drive_file_ids[event_id].add(drive_file_id)
 
     def record_search(self, event_id: str, query_type: str, match_count: int):
         if event_id in self.events:

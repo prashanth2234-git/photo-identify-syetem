@@ -8,6 +8,7 @@ from app.routes.photos import router as photos_router
 from app.routes.search import router as search_router
 from app.routes.privacy import router as privacy_router
 from app.routes.stats import router as stats_router
+from app.routes.imports import router as imports_router
 
 # Ensure seed data is always loaded
 load_seed_data()
@@ -41,6 +42,7 @@ app.include_router(photos_router)
 app.include_router(search_router)
 app.include_router(privacy_router)
 app.include_router(stats_router)
+app.include_router(imports_router)
 
 @app.get("/api/health")
 def health_check():

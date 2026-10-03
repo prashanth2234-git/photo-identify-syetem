@@ -78,6 +78,25 @@ export interface CreateEventPayload {
   photographer_name?: string;
 }
 
+export interface ImportJob {
+  id: string;
+  event_id: string;
+  folder_url: string;
+  status: 'queued' | 'running' | 'completed' | 'completed_with_errors' | 'failed' | 'cancelled';
+  total: number;
+  processed: number;
+  successful: number;
+  skipped: number;
+  failed: number;
+  remaining: number;
+  percentage: number;
+  current_filename: string | null;
+  message: string;
+  errors: Array<{ file: string; error: string }>;
+  created_at: string;
+  finished_at: string | null;
+}
+
 export interface UploadItem {
   id: string;
   file: File;

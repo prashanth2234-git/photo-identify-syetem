@@ -19,6 +19,7 @@ import { LightboxViewer } from './components/LightboxViewer';
 import { DashboardOverview } from './components/PhotographerDashboard/DashboardOverview';
 import { CreateEventModal } from './components/PhotographerDashboard/CreateEventModal';
 import { BulkUploadStudio } from './components/PhotographerDashboard/BulkUploadStudio';
+import { DriveImportPanel } from './components/PhotographerDashboard/DriveImportPanel';
 import { CloudinarySettingsModal } from './components/PhotographerDashboard/CloudinarySettingsModal';
 import { PrivacyModal } from './components/PrivacyModal';
 
@@ -49,6 +50,7 @@ export const App: React.FC = () => {
   // Photographer Dashboard Modals
   const [isCreateEventOpen, setIsCreateEventOpen] = useState(false);
   const [bulkUploadEvent, setBulkUploadEvent] = useState<Event | null>(null);
+  const [driveImportEvent, setDriveImportEvent] = useState<Event | null>(null);
   const [isCloudinaryModalOpen, setIsCloudinaryModalOpen] = useState(false);
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
 
@@ -288,6 +290,7 @@ export const App: React.FC = () => {
               stats={stats}
               onCreateEventClick={() => setIsCreateEventOpen(true)}
               onUploadPhotosClick={(event) => setBulkUploadEvent(event)}
+              onImportDriveClick={(event) => setDriveImportEvent(event)}
               onOpenCloudinarySettings={() => setIsCloudinaryModalOpen(true)}
               onGoToFindPhotos={(eventId) => {
                 if (eventId) {
@@ -389,12 +392,24 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* 6. Cloudinary Settings Modal */}
+      {/* 6. Google Drive Import Panel */}
+      {driveImportEvent && (
+        <DriveImportPanel
+          event={driveImportEvent}
+          onClose={() => setDriveImportEvent(null)}
+          onImportSuccess={() => {
+            showToast('Google Drive import finished — photos indexed!');
+            loadAllData();
+          }}
+        />
+      )}
+
+      {/* 7. Cloudinary Settings Modal */}
       {isCloudinaryModalOpen && (
         <CloudinarySettingsModal onClose={() => setIsCloudinaryModalOpen(false)} />
       )}
 
-      {/* 7. Privacy Policy Modal */}
+      {/* 8. Privacy Policy Modal */}
       {isPrivacyModalOpen && (
         <PrivacyModal onClose={() => setIsPrivacyModalOpen(false)} />
       )}

@@ -115,6 +115,41 @@ eventsnap/
 
 ## 🚀 Setup & Local Development
 
+### Google Drive Folder Import (Additive Feature)
+
+Photographers can import an entire Google Drive folder into an event without
+using the manual uploader:
+
+1. Create/select a Google Drive folder with event photos.
+2. Share the folder with the EventSnap **service account email** as **Viewer**.
+3. In EventSnap → Photographer Studio → select an event → **Google Drive**,
+   paste the folder URL.
+4. The backend imports photos one at a time through the *exact same* pipeline
+   as manual upload (YuNet face detection → SFace embeddings → Cloudinary
+   upload → face index), with live progress polling.
+
+Environment variables (backend-only, never exposed to the frontend):
+
+```ini
+GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE=C:\\path\\to\\service-account.json   # PRIMARY
+GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON=                                     # or raw JSON content
+GOOGLE_DRIVE_API_KEY=                                                  # FALLBACK, public folders only
+MAX_IMPORT_FILES=500
+```
+
+Notes:
+- My Drive and Shared Drive folders are both supported
+  (`supportsAllDrives` / `includeItemsFromAllDrives` / `corpora=allDrives`).
+- Duplicates are detected by Google Drive file ID — re-importing the same
+  folder skips already-imported files.
+- Each file must respect `MAX_UPLOAD_SIZE_MB`; oversized files are rejected
+  without stopping the import.
+- Import job state is **in-memory**: active job progress is lost if the
+  Render process restarts or redeploys. Re-start the import after a restart
+  (duplicate IDs prevent re-uploading photos already imported).
+- API endpoints: `POST /api/events/{id}/imports/google-drive`,
+  `GET /api/imports/{job_id}`, `POST /api/imports/{job_id}/cancel`.
+
 ### Prerequisites
 - **Node.js** 18+ and **npm**
 - **Python** 3.10+
