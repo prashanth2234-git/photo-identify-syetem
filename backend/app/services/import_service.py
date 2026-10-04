@@ -19,7 +19,7 @@ from app.database import db
 from app.services import drive_service
 from app.services.drive_service import DriveAccessError, DriveConfigError, DriveURLError
 from app.services.photo_pipeline import process_photo_bytes
-from app.services.face_service import face_engine
+from app.services.image_decoder import image_bytes_for_opencv, ImageDecodeError
 
 JOBS: Dict[str, Dict[str, Any]] = {}
 _CANCEL_FLAGS: Dict[str, bool] = {}
@@ -218,19 +218,29 @@ async def run_job(job_id: str):
             if face_count and face_count > 0:
                 job["with_faces"] += 1
             else:
-                job["no_faces"] += 1
-                if face_engine.decode_image(data) is None:
-                    _record_error(
-                        job,
-                        name,
-                        "Image could not be decoded (possibly HEIC/HEIF or corrupt). "
-                        "Uploaded successfully but no face indexing was possible.",
-                    )
-                else:
+                try:
+                    image_bytes_for_opencv(data)
+                    decodable = True
+                except ImageDecodeError:
+                    decodable = False
+
+                if decodable:
+                    job["no_faces"] += 1
                     _record_error(
                         job,
                         name,
                         "Imported successfully - no faces detected in this image.",
+                    )
+                else:
+                    # Decode failures are NOT face-detection successes:
+                    # reclassify from successful -> failed with a clear reason.
+                    job["successful"] = max(job["successful"] - 1, 0)
+                    job["failed"] += 1
+                    _record_error(
+                        job,
+                        name,
+                        "Image could not be decoded as HEIF/HEIC/HIF (possibly corrupt or unsupported). "
+                        "Uploaded successfully but no face indexed.",
                     )
         except Exception as e:
             job["failed"] += 1

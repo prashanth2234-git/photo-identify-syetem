@@ -349,6 +349,18 @@ def test_drive_import_indexes_real_face_and_is_searchable(monkeypatch):
     data = open(_FACE_SAMPLE, "rb").read()
     files = [{"id": "real1", "name": "face_sample.jpg", "mimeType": "image/jpeg", "size": str(len(data))}]
     _patch_common(monkeypatch, files, download_map={"real1": data}, use_real_pipeline=True)
+    from app.services import cloudinary_service as cs_mod
+
+    monkeypatch.setattr(
+        cs_mod.cloudinary_service,
+        "upload_photo",
+        lambda fb, eid, fname: {
+            "public_id": f"eventsnap/events/{eid}/x",
+            "original_url": "https://example.com/orig",
+            "thumbnail_url": "https://example.com/t",
+            "watermarked_url": "https://example.com/w",
+        },
+    )
 
     job = _run(import_service.create_job(event_id, "1AbCdEfGhIjK")["id"])
     assert job["status"] == "completed"
@@ -373,6 +385,18 @@ def test_drive_import_no_face_image_is_reported_without_faces(monkeypatch):
     no_face_png = _valid_png_bytes()  # solid color square: no person/face
     files = [{"id": "nf1", "name": "solid.png", "mimeType": "image/png", "size": str(len(no_face_png))}]
     _patch_common(monkeypatch, files, download_map={"nf1": no_face_png}, use_real_pipeline=True)
+    from app.services import cloudinary_service as cs_mod
+
+    monkeypatch.setattr(
+        cs_mod.cloudinary_service,
+        "upload_photo",
+        lambda fb, eid, fname: {
+            "public_id": f"eventsnap/events/{eid}/x",
+            "original_url": "https://example.com/orig",
+            "thumbnail_url": "https://example.com/t",
+            "watermarked_url": "https://example.com/w",
+        },
+    )
 
     job = _run(import_service.create_job(event_id, "1AbCdEfGhIjK")["id"])
     assert job["successful"] == 1
@@ -380,3 +404,154 @@ def test_drive_import_no_face_image_is_reported_without_faces(monkeypatch):
     assert job["no_faces"] == 1
     assert any("no faces detected" in e["error"] for e in job["errors"])
     assert len(db.get_event_faces(event_id)) == 0
+
+
+# ---------------------------------------------------------------------------
+# HEIF/HEIC/HIF decoding support
+# ---------------------------------------------------------------------------
+
+
+def _heif_bytes(pil_image) -> bytes:
+    import os
+    if not os.path.exists(_FACE_SAMPLE):
+        pytest.skip("face_sample.jpg fixture missing")
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+    buf = io.BytesIO()
+    pil_image.convert("RGB").save(buf, format="HEIF")
+    return buf.getvalue()
+
+
+def test_jpg_and_png_bytes_pass_through_unchanged():
+    from app.services.image_decoder import image_bytes_for_opencv
+
+    jpg = open(_FACE_SAMPLE, "rb").read()
+    out, converted = image_bytes_for_opencv(jpg)
+    assert converted is False
+    assert out == jpg  # original bytes, no forced Pillow conversion
+
+    png = _valid_png_bytes()
+    out2, converted2 = image_bytes_for_opencv(png)
+    assert converted2 is False
+    assert out2 == png
+
+
+def test_heif_decodes_and_face_is_indexed_via_same_pipeline(monkeypatch):
+    import os
+
+    if not os.path.exists(_FACE_SAMPLE):
+        pytest.skip("face_sample.jpg fixture missing")
+
+    event_id = _make_event()
+    heif_data = _heif_bytes(Image.open(_FACE_SAMPLE))
+    files = [{"id": "heif1", "name": "DSC06692.HIF", "mimeType": "image/heif", "size": str(len(heif_data))}]
+    _patch_common(monkeypatch, files, download_map={"heif1": heif_data}, use_real_pipeline=True)
+    from app.services import cloudinary_service as cs_mod
+
+    monkeypatch.setattr(
+        cs_mod.cloudinary_service,
+        "upload_photo",
+        lambda fb, eid, fname: {
+            "public_id": f"eventsnap/events/{eid}/x",
+            "original_url": "https://example.com/orig",
+            "thumbnail_url": "https://example.com/t",
+            "watermarked_url": "https://example.com/w",
+        },
+    )
+
+    job = _run(import_service.create_job(event_id, "1AbCdEfGhIjK")["id"])
+    assert job["successful"] == 1, job["errors"]
+    assert job["with_faces"] == 1
+    assert job["no_faces"] == 0
+
+    indexed = db.get_event_faces(event_id)
+    assert len(indexed) >= 1
+
+    from app.services.face_service import face_engine
+
+    vec, _ = face_engine.validate_and_embed_selfie(open(_FACE_SAMPLE, "rb").read())
+    assert len(face_engine.match_selfie(vec, indexed, threshold=0.50)) >= 1
+
+
+def test_heif_without_face_reports_no_faces(monkeypatch):
+    event_id = _make_event()
+    heif_no_face = _heif_bytes(Image.new("RGB", (64, 64), (20, 90, 140)))
+    files = [{"id": "heif2", "name": "frame.heic", "mimeType": "image/heic", "size": str(len(heif_no_face))}]
+    _patch_common(monkeypatch, files, download_map={"heif2": heif_no_face}, use_real_pipeline=True)
+    from app.services import cloudinary_service as cs_mod
+
+    monkeypatch.setattr(
+        cs_mod.cloudinary_service,
+        "upload_photo",
+        lambda fb, eid, fname: {
+            "public_id": f"eventsnap/events/{eid}/x",
+            "original_url": "https://example.com/orig",
+            "thumbnail_url": "https://example.com/t",
+            "watermarked_url": "https://example.com/w",
+        },
+    )
+
+    job = _run(import_service.create_job(event_id, "1AbCdEfGhIjK")["id"])
+    assert job["successful"] == 1
+    assert job["with_faces"] == 0
+    assert job["no_faces"] == 1
+    assert any("no faces detected" in e["error"] for e in job["errors"])
+
+
+def test_corrupt_heif_bytes_are_handled_gracefully(monkeypatch):
+    event_id = _make_event()
+    corrupt = b"\x00\x00\x00\x18ftypheic" + b"\xff" * 64  # plausible HEIF header, garbage payload
+    files = [{"id": "heif3", "name": "broken.heif", "mimeType": "image/heif", "size": str(len(corrupt))}]
+    _patch_common(monkeypatch, files, download_map={"heif3": corrupt}, use_real_pipeline=True)
+
+    # Stub Cloudinary upload so the test isolates decode-failure classification only
+    from app.services import cloudinary_service as cs_mod
+
+    monkeypatch.setattr(
+        cs_mod.cloudinary_service,
+        "upload_photo",
+        lambda file_bytes, event_id, filename: {
+            "public_id": f"eventsnap/events/{event_id}/x",
+            "original_url": "https://example.com/orig",
+            "thumbnail_url": "https://example.com/t",
+            "watermarked_url": "https://example.com/w",
+        },
+    )
+
+    job = _run(import_service.create_job(event_id, "1AbCdEfGhIjK")["id"])
+    # Decode failure must NOT be classified as a face-detection success
+    assert job["successful"] == 0
+    assert job["failed"] == 1
+    assert any("HEIF" in e["error"] for e in job["errors"])
+    assert len(db.get_event_faces(event_id)) == 0
+
+
+def test_heif_original_bytes_go_to_cloudinary(monkeypatch):
+    import os
+
+    if not os.path.exists(_FACE_SAMPLE):
+        pytest.skip("face_sample.jpg fixture missing")
+
+    event_id = _make_event()
+    heif_data = _heif_bytes(Image.open(_FACE_SAMPLE))
+    captured = {}
+
+    from app.services import cloudinary_service as cs_mod
+
+    def _capture_upload(file_bytes, event_id, filename):
+        captured["bytes"] = file_bytes
+        return {
+            "public_id": f"eventsnap/events/{event_id}/x",
+            "original_url": "https://example.com/orig",
+            "thumbnail_url": "https://example.com/t",
+            "watermarked_url": "https://example.com/w",
+        }
+
+    monkeypatch.setattr(cs_mod.cloudinary_service, "upload_photo", _capture_upload)
+    files = [{"id": "heif4", "name": "DSC06692.HIF", "mimeType": "image/heif", "size": str(len(heif_data))}]
+    _patch_common(monkeypatch, files, download_map={"heif4": heif_data}, use_real_pipeline=True)
+
+    job = _run(import_service.create_job(event_id, "1AbCdEfGhIjK")["id"])
+    assert job["successful"] == 1, job["errors"]
+    assert captured["bytes"] is heif_data or captured["bytes"] == heif_data

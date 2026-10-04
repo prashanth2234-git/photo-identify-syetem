@@ -20,6 +20,7 @@ from app.models import Photo
 from app.services.cloudinary_service import cloudinary_service
 from app.services.face_service import face_engine
 from app.services.ocr_service import bib_ocr_engine
+from app.services.image_decoder import image_bytes_for_opencv, ImageDecodeError
 
 
 def process_photo_bytes(
@@ -36,7 +37,15 @@ def process_photo_bytes(
         raise ValueError("Empty photo file provided")
 
     # 1. Detect ALL faces in the photo (handles multiple people)
-    detected_faces = face_engine.detect_faces(file_bytes)
+    # JPEG/PNG pass through unchanged; HEIF/HEIC/HIF is converted to a
+    # temporary CV-only JPEG so it uses the SAME YuNet/SFace pipeline.
+    try:
+        cv_bytes, _is_heif = image_bytes_for_opencv(file_bytes)
+    except ImageDecodeError:
+        # Keep legacy semantics: detection on raw bytes (will yield no faces),
+        # import classification happens in import_service with clear messages.
+        cv_bytes = file_bytes
+    detected_faces = face_engine.detect_faces(cv_bytes)
 
     # 2. Upload media to Cloudinary
     upload_res = cloudinary_service.upload_photo(file_bytes, event_id, filename or "photo.jpg")
