@@ -1,5 +1,6 @@
 import asyncio
 import io
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -39,8 +40,9 @@ def _make_event() -> str:
     return ev.id
 
 
-def _patch_common(monkeypatch, files, download_map=None, fail_folder=False, fail_config=False):
+def _patch_common(monkeypatch, files, download_map=None, fail_folder=False, fail_config=False, use_real_pipeline=False):
     """Patch all Google + pipeline touchpoints so tests run fully offline."""
+    download_calls = []
     monkeypatch.setattr(drive_service, "get_drive_service", lambda: object())
     if fail_config:
         def _raise_cfg():
@@ -58,6 +60,7 @@ def _patch_common(monkeypatch, files, download_map=None, fail_folder=False, fail
     )
 
     def _download(service, file_id, max_attempts=3):
+        download_calls.append(file_id)
         data = (download_map or {}).get(file_id, _valid_png_bytes())
         if isinstance(data, Exception):
             raise data
@@ -71,10 +74,13 @@ def _patch_common(monkeypatch, files, download_map=None, fail_folder=False, fail
         if file_bytes == b"CORRUPT":
             raise ValueError("corrupt image data")
         processed.append(filename)
-        return object()
+        return SimpleNamespace(faces_detected=0)
 
-    monkeypatch.setattr(import_service, "process_photo_bytes", _fake_pipeline)
-    return processed
+    if use_real_pipeline:
+        pass  # exercise the real face detection + indexing path
+    else:
+        monkeypatch.setattr(import_service, "process_photo_bytes", _fake_pipeline)
+    return SimpleNamespace(processed=processed, download_calls=download_calls)
 
 
 def _run(job_id: str):
@@ -113,11 +119,12 @@ def test_mixed_import_success_corrupt_unsupported_oversized(monkeypatch):
         {"id": "f2", "name": "b.jpg", "mimeType": "image/jpeg", "size": "100"},
         {"id": "f3", "name": "broken.png", "mimeType": "image/png", "size": "100"},
         {"id": "f4", "name": "notes.txt", "mimeType": "text/plain", "size": "10"},
-        {"id": "f5", "name": "huge.jpg", "mimeType": "image/jpeg", "size": str(50 * 1024 * 1024)},
+        {"id": "f5", "name": "huge.jpg", "mimeType": "image/jpeg", "size": str(60 * 1024 * 1024)},
     ]
-    processed = _patch_common(
+    ctx = _patch_common(
         monkeypatch, files, download_map={"f3": b"CORRUPT", "f1": _valid_png_bytes(), "f2": _valid_png_bytes()}
     )
+    processed = ctx.processed
 
     job = import_service.create_job(event_id, "https://drive.google.com/drive/folders/1AbCdEfGhIjK")
     job = _run(job["id"])
@@ -133,7 +140,12 @@ def test_mixed_import_success_corrupt_unsupported_oversized(monkeypatch):
     assert processed == ["a.png", "b.jpg"]
     assert any("Unsupported" in e["error"] for e in job["errors"])
     assert any("corrupt" in e["error"] for e in job["errors"])
-    assert any("limit" in e["error"] for e in job["errors"])
+    assert any("50 MB" in e["error"] for e in job["errors"])
+    # The 60 MB file must be rejected from Drive metadata BEFORE downloading
+    assert "f5" not in ctx.download_calls
+    # Counters must reflect that "successful" does NOT imply faces were found
+    assert job["with_faces"] == 0
+    assert job["no_faces"] == 2  # fake pipeline reports zero faces
 
 
 def test_duplicate_import_is_skipped(monkeypatch):
@@ -250,3 +262,121 @@ def test_route_starts_job_and_reports_status(monkeypatch):
 
     res4 = client.get("/api/imports/no-such-job")
     assert res4.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Folder listing: non-recursive + image-only + MAX_IMPORT_FILES
+# ---------------------------------------------------------------------------
+
+class _FakeReq:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def execute(self):
+        return self.payload
+
+
+class _FakeFiles:
+    def __init__(self, pages):
+        self.pages = pages
+        self.q_values = []
+
+    def list(self, **kwargs):
+        self.q_values.append(kwargs.get("q", ""))
+        payload = self.pages[min(len(self.q_values) - 1, len(self.pages) - 1)]
+        return _FakeReq(payload)
+
+
+class _FakeService:
+    def __init__(self, pages):
+        self._files = _FakeFiles(pages)
+
+    def files(self):
+        return self._files
+
+
+def test_listing_is_non_recursive_and_images_only():
+    page = {
+        "files": [
+            {"id": "i1", "name": "a.jpg", "mimeType": "image/jpeg", "size": "10"},
+            {"id": "i2", "name": "b.png", "mimeType": "image/png", "size": "10"},
+            {"id": "sub", "name": "Subfolder", "mimeType": "application/vnd.google-apps.folder"},
+        ],
+        "nextPageToken": None,
+    }
+    svc = _FakeService([page])
+    out = list(drive_service.iter_folder_files(svc, "folder123", max_files=1000))
+
+    # Only direct image children are yielded; the subfolder is never recursed into
+    assert [f["id"] for f in out] == ["i1", "i2"]
+    # Exactly ONE list call (no second call for the subfolder) and image filter in query
+    assert len(svc._files.q_values) == 1
+    assert "'folder123' in parents" in svc._files.q_values[0]
+    assert "mimeType contains 'image/'" in svc._files.q_values[0]
+
+
+def test_listing_respects_max_import_files_cap():
+    page = {
+        "files": [
+            {"id": f"i{i}", "name": f"{i}.jpg", "mimeType": "image/jpeg", "size": "10"}
+            for i in range(5)
+        ],
+        "nextPageToken": None,
+    }
+    svc = _FakeService([page])
+    out = list(drive_service.iter_folder_files(svc, "folder123", max_files=3))
+    assert len(out) == 3
+
+
+# ---------------------------------------------------------------------------
+# Real pipeline verification: Drive image -> faces -> searchable index
+# ---------------------------------------------------------------------------
+
+_FACE_SAMPLE = __import__("os").path.join(
+    __import__("os").path.dirname(__import__("os").path.abspath(__file__)),
+    "test_fixtures",
+    "face_sample.jpg",
+)
+
+
+def test_drive_import_indexes_real_face_and_is_searchable(monkeypatch):
+    import os
+
+    if not os.path.exists(_FACE_SAMPLE):
+        pytest.skip("face_sample.jpg fixture missing")
+
+    event_id = _make_event()
+    data = open(_FACE_SAMPLE, "rb").read()
+    files = [{"id": "real1", "name": "face_sample.jpg", "mimeType": "image/jpeg", "size": str(len(data))}]
+    _patch_common(monkeypatch, files, download_map={"real1": data}, use_real_pipeline=True)
+
+    job = _run(import_service.create_job(event_id, "1AbCdEfGhIjK")["id"])
+    assert job["status"] == "completed"
+    assert job["successful"] == 1
+    assert job["with_faces"] == 1
+    assert job["no_faces"] == 0
+
+    indexed = db.get_event_faces(event_id)
+    assert len(indexed) >= 1, "Drive-imported photo did not index any faces"
+
+    # Find My Photos path: same image as selfie must match via the shared index
+    from app.services.face_service import face_engine
+
+    vec, _ = face_engine.validate_and_embed_selfie(data)
+    matches = face_engine.match_selfie(vec, indexed, threshold=0.50)
+    assert len(matches) >= 1
+    assert matches[0]["confidence"] >= 0.50
+
+
+def test_drive_import_no_face_image_is_reported_without_faces(monkeypatch):
+    event_id = _make_event()
+    no_face_png = _valid_png_bytes()  # solid color square: no person/face
+    files = [{"id": "nf1", "name": "solid.png", "mimeType": "image/png", "size": str(len(no_face_png))}]
+    _patch_common(monkeypatch, files, download_map={"nf1": no_face_png}, use_real_pipeline=True)
+
+    job = _run(import_service.create_job(event_id, "1AbCdEfGhIjK")["id"])
+    assert job["successful"] == 1
+    assert job["with_faces"] == 0
+    assert job["no_faces"] == 1
+    assert any("no faces detected" in e["error"] for e in job["errors"])
+    assert len(db.get_event_faces(event_id)) == 0

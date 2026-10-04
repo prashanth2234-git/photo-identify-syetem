@@ -88,6 +88,8 @@ class ImportJob(BaseModel):
     successful: int = 0
     skipped: int = 0
     failed: int = 0
+    with_faces: int = 0
+    no_faces: int = 0
     remaining: int = 0
     percentage: float = 0.0
     current_filename: Optional[str] = None

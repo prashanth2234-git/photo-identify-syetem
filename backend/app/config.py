@@ -47,7 +47,8 @@ class Settings(BaseModel):
     MAX_UPLOAD_SIZE_MB: int = 15
 
     # Google Drive Import
-    MAX_IMPORT_FILES: int = int(os.getenv("MAX_IMPORT_FILES", "500"))
+    MAX_IMPORT_FILES: int = int(os.getenv("MAX_IMPORT_FILES", "1000"))
+    GOOGLE_DRIVE_MAX_FILE_SIZE_MB: int = int(os.getenv("GOOGLE_DRIVE_MAX_FILE_SIZE_MB", "50"))
     GOOGLE_DRIVE_API_KEY: str = os.getenv("GOOGLE_DRIVE_API_KEY", "")
     GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: str = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE", "")
     GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON: str = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON", "")

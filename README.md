@@ -134,10 +134,20 @@ Environment variables (backend-only, never exposed to the frontend):
 GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE=C:\\path\\to\\service-account.json   # PRIMARY
 GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON=                                     # or raw JSON content
 GOOGLE_DRIVE_API_KEY=                                                  # FALLBACK, public folders only
-MAX_IMPORT_FILES=500
+GOOGLE_DRIVE_MAX_FILE_SIZE_MB=50
+MAX_IMPORT_FILES=1000
 ```
 
 Notes:
+- Only image files that are **direct children** of the selected folder are
+  imported; subfolders are not traversed.
+- Drive images up to `GOOGLE_DRIVE_MAX_FILE_SIZE_MB` (default 50 MB, sized
+  for DSLR photos) are accepted; larger files are rejected from Drive
+  metadata **before** download.
+- A successful import does **not** imply faces were found. Each job reports
+  `successful`, `with_faces`, `no_faces`, `skipped`, `failed`, and lists
+  per-file reasons (no faces detected, undecodable/HEIC, unsupported type,
+  oversize, duplicate ID, etc.).
 - My Drive and Shared Drive folders are both supported
   (`supportsAllDrives` / `includeItemsFromAllDrives` / `corpora=allDrives`).
 - Duplicates are detected by Google Drive file ID — re-importing the same

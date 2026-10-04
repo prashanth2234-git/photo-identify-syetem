@@ -166,75 +166,50 @@ def get_folder_metadata(service, folder_id: str) -> Dict[str, Any]:
         raise DriveAccessError(_http_error_message(e))
 
 
-def iter_folder_files(service, folder_id: str, max_files: int = 500) -> Iterator[Dict[str, Any]]:
-    """Yields file metadata dicts for every non-folder file, recursively.
+def iter_folder_files(service, folder_id: str, max_files: int = 1000) -> Iterator[Dict[str, Any]]:
+    """Yields image-file metadata dicts that are DIRECT children of folder_id.
 
+    Non-recursive by design: nested subfolders are not traversed, so
+    importing "folder X" imports only the images sitting directly inside X.
     Uses supportsAllDrives / includeItemsFromAllDrives / corpora=allDrives
     so both My Drive and Shared Drive folders work. Pages results so the
     entire listing is never held in memory beyond a single page.
     """
-    pending = [folder_id]
+    page_token = None
     yielded = 0
 
-    while pending:
-        current = pending.pop(0)
-        page_token = None
-        while True:
-            try:
-                resp = (
-                    service.files()
-                    .list(
-                        q=f"'{current}' in parents and trashed = false",
-                        fields="nextPageToken, files(id, name, mimeType, size, shortcutDetails)",
-                        pageSize=100,
-                        pageToken=page_token,
-                        supportsAllDrives=True,
-                        includeItemsFromAllDrives=True,
-                        corpora="allDrives",
-                    )
-                    .execute()
+    while True:
+        try:
+            resp = (
+                service.files()
+                .list(
+                    q=(
+                        f"'{folder_id}' in parents and trashed = false "
+                        "and mimeType contains 'image/'"
+                    ),
+                    fields="nextPageToken, files(id, name, mimeType, size)",
+                    pageSize=100,
+                    pageToken=page_token,
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
+                    corpora="allDrives",
                 )
-            except Exception as e:
-                raise DriveAccessError(_http_error_message(e))
+                .execute()
+            )
+        except Exception as e:
+            raise DriveAccessError(_http_error_message(e))
 
-            for f in resp.get("files", []):
-                mime = f.get("mimeType", "")
-                if mime == FOLDER_MIME:
-                    pending.append(f["id"])
-                elif mime == SHORTCUT_MIME:
-                    # Resolve shortcuts to their target file if it is an image
-                    details = f.get("shortcutDetails") or {}
-                    target_id = details.get("targetId")
-                    if target_id:
-                        try:
-                            meta = (
-                                service.files()
-                                .get(
-                                    fileId=target_id,
-                                    fields="id,name,mimeType,size",
-                                    supportsAllDrives=True,
-                                )
-                                .execute()
-                            )
-                            if meta.get("mimeType") != FOLDER_MIME:
-                                f = meta
-                            else:
-                                pending.append(target_id)
-                                continue
-                        except Exception:
-                            continue
-                    else:
-                        continue
+        for f in resp.get("files", []):
+            if not f.get("mimeType", "").startswith("image/"):
+                continue
+            yield f
+            yielded += 1
+            if yielded >= max_files:
+                return
 
-                if f.get("mimeType") != FOLDER_MIME:
-                    yield f
-                    yielded += 1
-                    if yielded >= max_files:
-                        return
-
-            page_token = resp.get("nextPageToken")
-            if not page_token:
-                break
+        page_token = resp.get("nextPageToken")
+        if not page_token:
+            break
 
 
 def download_file(service, file_id: str, max_attempts: int = 3) -> bytes:

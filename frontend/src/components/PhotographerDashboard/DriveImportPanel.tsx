@@ -170,6 +170,10 @@ export const DriveImportPanel: React.FC<DriveImportPanelProps> = ({
 
             <div className="text-xs text-slate-400 font-mono space-y-1">
               <p>Remaining: {job.remaining}</p>
+              <p>
+                Face indexing: {job.with_faces} photo{job.with_faces === 1 ? '' : 's'} with detected faces •{' '}
+                {job.no_faces} photo{job.no_faces === 1 ? '' : 's'} with no faces detected
+              </p>
               {job.current_filename && isActive && (
                 <p className="flex items-center space-x-1.5">
                   <Loader2 className="w-3 h-3 animate-spin text-sky-400" />

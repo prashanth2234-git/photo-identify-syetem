@@ -88,6 +88,8 @@ export interface ImportJob {
   successful: number;
   skipped: number;
   failed: number;
+  with_faces: number;
+  no_faces: number;
   remaining: number;
   percentage: number;
   current_filename: string | null;
